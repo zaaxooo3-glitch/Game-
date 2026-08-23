@@ -1,0 +1,620 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>AR Spell Caster - Phonics Magic</title>
+<!-- Tailwind CSS CDN -->
+<script src="https://cdn.tailwindcss.com"></script>
+<!-- FontAwesome Icons -->
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+<!-- Google Fonts (Kanit) -->
+<link href="https://fonts.googleapis.com/css2?family=Kanit:wght@300;400;600;700&display=swap" rel="stylesheet">
+<!-- MediaPipe Libraries -->
+<script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js" crossorigin="anonymous"></script>
+<script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js" crossorigin="anonymous"></script>
+<!-- Canvas Confetti -->
+<script src="https://cdn.jsdelivr.net/npm/canvas-confetti@1.6.0/dist/confetti.browser.min.js"></script>
+<style>
+body {
+font-family: 'Kanit', sans-serif;
+touch-action: none;
+user-select: none;
+overflow: hidden;
+background: #090d16;
+}
+/* Glassmorphism Styles */
+.glass-panel {
+background: rgba(15, 23, 42, 0.65);
+backdrop-filter: blur(16px);
+-webkit-backdrop-filter: blur(16px);
+border: 1px solid rgba(255, 255, 255, 0.15);
+box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.5);
+}
+.mirror {
+transform: scaleX(-1);
+}
+@keyframes pulseGlow {
+0%, 100% { opacity: 0.6; transform: scale(1); }
+50% { opacity: 1; transform: scale(1.05); }
+}
+.animate-glow {
+animation: pulseGlow 2s infinite ease-in-out;
+}
+</style>
+</head>
+<body class="w-screen h-screen relative flex items-center justify-center text-white">
+<!-- 1. START SCREEN -->
+<div id="start-screen" class="absolute inset-0 z-50 flex flex-col items-center justify-center bg-slate-950/90 p-6 text-center">
+<div class="glass-panel p-8 rounded-3xl max-w-lg w-full flex flex-col items-center gap-6 animate-glow border-purple-500/30">
+<div class="w-24 h-24 bg-gradient-to-tr from-purple-600 to-indigo-500 rounded-3xl flex items-center justify-center text-5xl shadow-lg shadow-purple-500/50">
+🧙‍♂️
+</div>
+<h1 class="text-3xl md:text-4xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-purple-400 via-pink-300 to-indigo-200">
+AR Spell Caster
+</h1>
+<p class="text-slate-300 text-sm md:text-base">
+สวมบทบาทจอมเวท AR ปราบมังกร! 
+
+ใช้การ "จีบนิ้ว" เพื่อหยิบอักขระตัวอักษรมาสะกดเป็นคำเวทมนตร์ภาษาอังกฤษ หรือใช้เมาส์ลากวางเล่นได้สะดวก!
+</p>
+<button id="btn-start-app" onclick="startApp()" class="w-full py-4 bg-gradient-to-r from-purple-600 via-indigo-600 to-pink-600 hover:brightness-110 text-white font-bold text-xl rounded-2xl shadow-lg shadow-indigo-500/40 transition duration-300 flex items-center justify-center gap-3">
+<i class="fa-solid fa-wand-magic-sparkles"></i> เข้าสู่เกม (Start)
+</button>
+</div>
+</div>
+<!-- 2. MAIN AR CANVAS VIEWPORT -->
+<div id="game-viewport" class="relative w-full h-full flex items-center justify-center overflow-hidden">
+<!-- Webcam Video (Hidden and mirrored into canvas) -->
+<video id="webcam" class="absolute inset-0 w-full h-full object-cover mirror hidden" playsinline></video>
+<!-- AR Render Canvas -->
+<canvas id="ar-canvas" class="absolute inset-0 w-full h-full object-cover z-10 cursor-pointer"></canvas>
+<!-- Status & Score Overlay -->
+<div class="absolute top-4 right-4 z-20 flex items-center gap-3">
+<div id="camera-status" class="glass-panel px-4 py-2 rounded-full text-xs md:text-sm flex items-center gap-2">
+<span id="status-dot" class="w-3 h-3 rounded-full bg-yellow-400 animate-pulse"></span>
+<span id="status-text">กำลังเปิดกล้อง...</span>
+</div>
+<div class="glass-panel px-5 py-2 rounded-full text-sm md:text-base font-semibold flex items-center gap-2 text-amber-300 border-amber-500/30">
+<i class="fa-solid fa-bolt-lightning"></i>
+<span>พลังเวท: <span id="score-text">0</span></span>
+</div>
+</div>
+<!-- Warning Toast for Hand Tracking -->
+<div id="hand-warning" class="absolute top-20 z-20 bg-amber-500/80 backdrop-blur-md text-white px-6 py-2 rounded-full text-sm font-medium shadow-lg transition-all duration-300 opacity-0 pointer-events-none flex items-center gap-2">
+<i class="fa-solid fa-hand-sparkles animate-bounce"></i>
+<span>กำลังหามือของคุณ... (ยกมือขึ้นส่องกล้อง)</span>
+</div>
+<!-- 3. ALL CLEAR / WIN OVERLAY -->
+<div id="complete-modal" class="hidden absolute inset-0 z-40 bg-slate-950/85 backdrop-blur-md flex flex-col items-center justify-center p-6 text-center">
+<div class="glass-panel p-8 rounded-3xl max-w-md w-full flex flex-col items-center gap-6 border-purple-500/40">
+<div class="text-7xl animate-bounce">🐲✨</div>
+<h2 class="text-4xl font-extrabold text-transparent bg-clip-text bg-gradient-to-r from-purple-300 to-pink-300">All Clear!</h2>
+<p class="text-lg text-slate-200">คุณร่ายเวทสะกดคำปราบมังกรสำเร็จครบทุกด่าน!</p>
+<div class="bg-purple-950/60 px-6 py-4 rounded-2xl w-full border border-purple-500/30">
+<p class="text-sm text-purple-300">คะแนนพลังเวททั้งหมด</p>
+<p class="text-4xl font-bold text-amber-300 mt-1"><span id="final-score">300</span> / 300</p>
+</div>
+<button onclick="restartGame()" class="w-full py-4 bg-gradient-to-r from-purple-500 to-pink-600 text-white font-bold text-xl rounded-2xl shadow-lg shadow-purple-500/40 hover:scale-105 transition duration-200">
+<i class="fa-solid fa-rotate-right"></i> เล่นใหม่อีกครั้ง
+</button>
+</div>
+</div>
+</div>
+<!-- GAME LOGIC SCRIPT -->
+<script>
+// --- LEVEL DATA (Spell Casting Dataset) ---
+const LEVELS = [
+{
+id: 1,
+promptThai: "มังกรเพลิงตัวใหญ่! (สะกดคำว่า 'ใหญ่')",
+targetWord: "BIG",
+bossEmoji: "🐉🔥",
+letters: [
+{ id: 'l1', text: 'B' },
+{ id: 'l2', text: 'I' },
+{ id: 'l3', text: 'G' },
+{ id: 'l4', text: 'S' },
+{ id: 'l5', text: 'T' }
+]
+},
+{
+id: 2,
+promptThai: "มังกรน้ำแข็งยะเยือก! (สะกดคำว่า 'หนาวเย็น')",
+targetWord: "COLD",
+bossEmoji: "🐲🧊",
+letters: [
+{ id: 'l1', text: 'C' },
+{ id: 'l2', text: 'O' },
+{ id: 'l3', text: 'L' },
+{ id: 'l4', text: 'D' },
+{ id: 'l5', text: 'H' },
+{ id: 'l6', text: 'W' }
+]
+},
+{
+id: 3,
+promptThai: "มังกรสายฟ้าบนท้องฟ้า! (สะกดคำว่า 'ท้องฟ้า')",
+targetWord: "SKY",
+bossEmoji: "🐉⚡",
+letters: [
+{ id: 'l1', text: 'S' },
+{ id: 'l2', text: 'K' },
+{ id: 'l3', text: 'Y' },
+{ id: 'l4', text: 'F' },
+{ id: 'l5', text: 'L' }
+]
+}
+];
+// --- GLOBAL STATE ---
+let currentLevelIdx = 0;
+let score = 0;
+let gameMode = 'INSTRUCTIONS'; // 'INSTRUCTIONS', 'PLAYING', 'ALL_CLEAR'
+const canvas = document.getElementById('ar-canvas');
+const ctx = canvas.getContext('2d');
+const video = document.getElementById('webcam');
+// Cursor & Control Status
+let cursor = { x: -100, y: -100, isPinching: false, isHovering: false, state: 'NORMAL' };
+let handDetected = false;
+let lastHandTime = 0;
+let handLandmarks = null;
+// Game Graphic Elements
+let letterGems = [];
+let spellSlots = [];
+let uiButtons = [];
+// Dragging & Interaction
+let isMouseDown = false;
+let draggedGem = null;
+let dragOffset = { x: 0, y: 0 };
+// Animation Particles
+let spellBeams = [];
+// --- INITIALIZATION ---
+window.addEventListener('load', () => {
+resizeCanvas();
+window.addEventListener('resize', resizeCanvas);
+setupMouseAndTouchEvents();
+requestAnimationFrame(drawLoop);
+});
+function resizeCanvas() {
+canvas.width = window.innerWidth;
+canvas.height = window.innerHeight;
+if (gameMode === 'PLAYING' || gameMode === 'INSTRUCTIONS') {
+setupLevelUI();
+}
+}
+// --- MEDIAPIPE & CAMERA SETUP ---
+async function startApp() {
+document.getElementById('start-screen').classList.add('hidden');
+setupLevelUI();
+initMediaPipeHands();
+}
+function initMediaPipeHands() {
+const hands = new Hands({
+locateFile: (file) => https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}
+});
+hands.setOptions({
+maxNumHands: 1,
+modelComplexity: 1,
+minDetectionConfidence: 0.6,
+minTrackingConfidence: 0.6
+});
+hands.onResults(onHandResults);
+const camera = new Camera(video, {
+onFrame: async () => {
+await hands.send({ image: video });
+},
+width: 1280,
+height: 720
+});
+camera.start()
+.then(() => updateStatus(true, "AR Camera Active"))
+.catch(err => {
+console.warn("Camera inactive. Mouse/Touch fallback mode enabled.", err);
+updateStatus(false, "โหมดเมาส์/สัมผัส (ไม่ใช้กล้อง)");
+});
+}
+function updateStatus(active, text) {
+const dot = document.getElementById('status-dot');
+const txt = document.getElementById('status-text');
+txt.innerText = text;
+dot.className = active ? "w-3 h-3 rounded-full bg-emerald-400 animate-ping" : "w-3 h-3 rounded-full bg-amber-400";
+}
+// --- HAND TRACKING & PINCH DETECTION ---
+function onHandResults(results) {
+if (results.multiHandLandmarks && results.multiHandLandmarks.length > 0) {
+handDetected = true;
+lastHandTime = Date.now();
+handLandmarks = results.multiHandLandmarks[0];
+const indexTip = handLandmarks[8];
+const thumbTip = handLandmarks[4];
+// Coordinates Mirrored horizontally
+const cursorX = (1 - indexTip.x) * canvas.width;
+const cursorY = indexTip.y * canvas.height;
+const thumbX = (1 - thumbTip.x) * canvas.width;
+const thumbY = thumbTip.y * canvas.height;
+// Pythagoras distance: Math.sqrt(dxdx + dydy)
+const dx = cursorX - thumbX;
+const dy = cursorY - thumbY;
+const pinchDistance = Math.sqrt(dx * dx + dy * dy);
+const isPinching = pinchDistance < 45;
+updateVirtualCursor(cursorX, cursorY, isPinching);
+document.getElementById('hand-warning').classList.add('opacity-0');
+} else {
+if (Date.now() - lastHandTime > 1500) {
+handDetected = false;
+handLandmarks = null;
+if (gameMode === 'PLAYING') {
+document.getElementById('hand-warning').classList.remove('opacity-0');
+}
+}
+}
+}
+// --- VIRTUAL CURSOR SYSTEM ---
+function updateVirtualCursor(x, y, isPinching) {
+cursor.x = x;
+cursor.y = y;
+const wasPinching = cursor.isPinching;
+cursor.isPinching = isPinching;
+let hoveredElement = getHoveredElement(x, y);
+cursor.isHovering = !!hoveredElement;
+if (isPinching) {
+cursor.state = (draggedGem || hoveredElement) ? 'PINCH_HOLD' : 'PINCH_MISS';
+} else {
+cursor.state = cursor.isHovering ? 'HOVER' : 'NORMAL';
+}
+if (!wasPinching && isPinching) {
+handleInteractionDown(x, y);
+} else if (wasPinching && !isPinching) {
+handleInteractionUp(x, y);
+} else if (isPinching && draggedGem) {
+draggedGem.x = x - dragOffset.x;
+draggedGem.y = y - dragOffset.y;
+}
+}
+function getHoveredElement(x, y) {
+for (let btn of uiButtons) {
+if (x >= btn.x && x <= btn.x + btn.w && y >= btn.y && y <= btn.y + btn.h) return btn;
+}
+for (let i = letterGems.length - 1; i >= 0; i--) {
+let gem = letterGems[i];
+if (!gem.isPlaced && x >= gem.x && x <= gem.x + gem.w && y >= gem.y && y <= gem.y + gem.h) {
+return gem;
+}
+}
+return null;
+}
+function handleInteractionDown(x, y) {
+for (let btn of uiButtons) {
+if (x >= btn.x && x <= btn.x + btn.w && y >= btn.y && y <= btn.y + btn.h) {
+btn.action();
+return;
+}
+}
+for (let i = letterGems.length - 1; i >= 0; i--) {
+let gem = letterGems[i];
+if (!gem.isPlaced && x >= gem.x && x <= gem.x + gem.w && y >= gem.y && y <= gem.y + gem.h) {
+draggedGem = gem;
+dragOffset.x = x - gem.x;
+dragOffset.y = y - gem.y;
+letterGems.splice(i, 1);
+letterGems.push(gem);
+break;
+}
+}
+}
+function handleInteractionUp(x, y) {
+if (draggedGem) {
+let placedInSlot = false;
+for (let slot of spellSlots) {
+if (!slot.filledWith && gemOverlapsSlot(draggedGem, slot)) {
+// Check if gem matches target letter for this slot position
+if (draggedGem.text === slot.targetLetter) {
+draggedGem.x = slot.x;
+draggedGem.y = slot.y;
+draggedGem.isPlaced = true;
+slot.filledWith = draggedGem;
+placedInSlot = true;
+// Create magic beam particle
+addSpellBeam(slot.x + slot.w / 2, slot.y + slot.h / 2);
+checkLevelCompletion();
+}
+break;
+}
+}
+if (!placedInSlot) {
+draggedGem.x = draggedGem.originX;
+draggedGem.y = draggedGem.originY;
+}
+draggedGem = null;
+}
+}
+function gemOverlapsSlot(gem, slot) {
+const centerX = gem.x + gem.w / 2;
+const centerY = gem.y + gem.h / 2;
+return centerX >= slot.x && centerX <= slot.x + slot.w &&
+centerY >= slot.y && centerY <= slot.y + slot.h;
+}
+// --- LEVEL LAYOUT SETUP ---
+function setupLevelUI() {
+const levelData = LEVELS[currentLevelIdx];
+letterGems = [];
+spellSlots = [];
+uiButtons = [];
+const slotSize = Math.min(100, canvas.width * 0.15);
+if (gameMode === 'INSTRUCTIONS') {
+const btnW = 220;
+const btnH = 65;
+uiButtons.push({
+id: 'btn-start-game',
+x: canvas.width / 2 - btnW / 2,
+y: canvas.height * 0.72,
+w: btnW,
+h: btnH,
+text: "เริ่มเกม! 🚀",
+action: () => {
+gameMode = 'PLAYING';
+setupLevelUI();
+}
+});
+return;
+}
+// 1. Spell Slots Wand Area (Middle Bottom)
+const numLetters = levelData.targetWord.length;
+const totalSlotW = numLetters * (slotSize + 15) - 15;
+const startSlotX = (canvas.width - totalSlotW) / 2;
+const slotY = canvas.height * 0.52;
+for (let i = 0; i < numLetters; i++) {
+spellSlots.push({
+index: i,
+targetLetter: levelData.targetWord[i],
+x: startSlotX + i * (slotSize + 15),
+y: slotY,
+w: slotSize,
+h: slotSize,
+filledWith: null
+});
+}
+// 2. Floating Letter Gems (Bottom Row)
+const numGems = levelData.letters.length;
+const totalGemW = numGems * (slotSize + 15) - 15;
+const startGemX = (canvas.width - totalGemW) / 2;
+const gemY = canvas.height * 0.74;
+levelData.letters.forEach((item, idx) => {
+const posX = startGemX + idx * (slotSize + 15);
+letterGems.push({
+id: item.id,
+text: item.text,
+x: posX,
+y: gemY,
+originX: posX,
+originY: gemY,
+w: slotSize,
+h: slotSize,
+isPlaced: false
+});
+});
+}
+function checkLevelCompletion() {
+const allFilled = spellSlots.every(s => s.filledWith !== null);
+if (allFilled) {
+score += 100;
+document.getElementById('score-text').innerText = score;
+// Blast Dragon confetti
+confetti({ particleCount: 120, spread: 80, origin: { y: 0.3 } });
+setTimeout(() => {
+if (currentLevelIdx < LEVELS.length - 1) {
+currentLevelIdx++;
+setupLevelUI();
+} else {
+gameMode = 'ALL_CLEAR';
+document.getElementById('final-score').innerText = score;
+document.getElementById('complete-modal').classList.remove('hidden');
+}
+}, 1200);
+}
+}
+function restartGame() {
+currentLevelIdx = 0;
+score = 0;
+document.getElementById('score-text').innerText = score;
+document.getElementById('complete-modal').classList.add('hidden');
+gameMode = 'PLAYING';
+setupLevelUI();
+}
+function addSpellBeam(x, y) {
+spellBeams.push({
+x: x,
+y: y,
+targetY: canvas.height * 0.28,
+progress: 0
+});
+}
+// --- RENDER LOOP ---
+function drawLoop() {
+ctx.clearRect(0, 0, canvas.width, canvas.height);
+// Webcam Background Stream
+if (video.readyState >= 2) {
+ctx.save();
+ctx.translate(canvas.width, 0);
+ctx.scale(-1, 1);
+ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+ctx.restore();
+ctx.fillStyle = 'rgba(9, 13, 22, 0.55)';
+ctx.fillRect(0, 0, canvas.width, canvas.height);
+} else {
+let grad = ctx.createLinearGradient(0, 0, canvas.width, canvas.height);
+grad.addColorStop(0, '#1e1b4b');
+grad.addColorStop(1, '#090d16');
+ctx.fillStyle = grad;
+ctx.fillRect(0, 0, canvas.width, canvas.height);
+}
+// Hand Skeleton
+if (handLandmarks) drawHandSkeleton(handLandmarks);
+// Gameplay Views
+if (gameMode === 'INSTRUCTIONS') {
+drawInstructionsView();
+} else if (gameMode === 'PLAYING' || gameMode === 'ALL_CLEAR') {
+drawGameplayView();
+}
+drawCursor();
+requestAnimationFrame(drawLoop);
+}
+// --- DRAWING HELPERS ---
+function drawHandSkeleton(landmarks) {
+ctx.save();
+ctx.lineWidth = 3;
+ctx.strokeStyle = 'rgba(192, 132, 252, 0.6)';
+ctx.fillStyle = 'rgba(243, 232, 255, 0.9)';
+const connections = [
+[0,1],[1,2],[2,3],[3,4],[0,5],[5,6],[6,7],[7,8],
+[5,9],[9,10],[10,11],[11,12],[9,13],[13,14],[14,15],[15,16],
+[13,17],[17,18],[18,19],[19,20],[0,17]
+];
+connections.forEach(([i, j]) => {
+const pt1 = { x: (1 - landmarks[i].x) * canvas.width, y: landmarks[i].y * canvas.height };
+const pt2 = { x: (1 - landmarks[j].x) * canvas.width, y: landmarks[j].y * canvas.height };
+ctx.beginPath();
+ctx.moveTo(pt1.x, pt1.y);
+ctx.lineTo(pt2.x, pt2.y);
+ctx.stroke();
+});
+landmarks.forEach((pt) => {
+ctx.beginPath();
+ctx.arc((1 - pt.x) * canvas.width, pt.y * canvas.height, 4, 0, Math.PI * 2);
+ctx.fill();
+});
+ctx.restore();
+}
+function drawInstructionsView() {
+ctx.save();
+const w = Math.min(600, canvas.width * 0.9);
+const h = 340;
+const x = (canvas.width - w) / 2;
+const y = canvas.height * 0.2;
+drawRoundedRect(ctx, x, y, w, h, 24, 'rgba(15, 23, 42, 0.85)', 'rgba(168, 85, 247, 0.4)');
+ctx.textAlign = 'center';
+ctx.fillStyle = '#f8fafc';
+ctx.font = 'bold 28px Kanit';
+ctx.fillText("🪄 วิธีเล่น AR Spell Caster", canvas.width / 2, y + 50);
+ctx.font = '18px Kanit';
+ctx.fillStyle = '#cbd5e1';
+const lines = [
+"1. ดูโจทย์ภาษาไทยและรูปมังกรที่บุกมาด้านบน",
+"2. 'จีบนิ้ว' (นิ้วโป้งแตะนิ้วชี้) เพื่อจับอักขระตัวอักษรด้านล่าง",
+"3. นำมาสะกดใส่แท่นร่ายคาถาตรงกลางให้ถูกต้องครบทุกช่อง",
+"💡 สามารถใช้เมาส์ หรือสัมผัสลากวางตัวอักษรแทนได้!"
+];
+lines.forEach((line, idx) => {
+ctx.fillText(line, canvas.width / 2, y + 110 + (idx * 38));
+});
+uiButtons.forEach(btn => {
+const isHover = cursor.x >= btn.x && cursor.x <= btn.x + btn.w && cursor.y >= btn.y && cursor.y <= btn.y + btn.h;
+drawRoundedRect(ctx, btn.x, btn.y, btn.w, btn.h, 20, isHover ? '#059669' : '#10b981', '#6ee7b7');
+ctx.fillStyle = '#ffffff';
+ctx.font = 'bold 22px Kanit';
+ctx.fillText(btn.text, btn.x + btn.w / 2, btn.y + btn.h / 2 + 7);
+});
+ctx.restore();
+}
+function drawGameplayView() {
+const levelData = LEVELS[currentLevelIdx];
+// 1. Header Banner & Dragon Boss Target
+ctx.save();
+const bossY = canvas.height * 0.26;
+// Dragon Emoji Boss Avatar
+ctx.textAlign = 'center';
+ctx.font = '72px sans-serif';
+ctx.fillText(levelData.bossEmoji, canvas.width / 2, bossY);
+// Quest Prompt Banner
+const headerW = Math.min(580, canvas.width * 0.88);
+const headerH = 60;
+const headerX = (canvas.width - headerW) / 2;
+const headerY = canvas.height * 0.08;
+drawRoundedRect(ctx, headerX, headerY, headerW, headerH, 20, 'rgba(15, 23, 42, 0.85)', 'rgba(168, 85, 247, 0.5)');
+ctx.fillStyle = '#e9d5ff';
+ctx.font = '600 15px Kanit';
+ctx.fillText(ด่านที่ ${levelData.id} / ${LEVELS.length} : สะกดคำเวทมนตร์ภาษาอังกฤษ, canvas.width / 2, headerY + 23);
+ctx.fillStyle = '#ffffff';
+ctx.font = 'bold 22px Kanit';
+ctx.fillText("${levelData.promptThai}", canvas.width / 2, headerY + 48);
+ctx.restore();
+// 2. Spell Wand Slots (Middle Area)
+spellSlots.forEach((slot) => {
+ctx.save();
+drawRoundedRect(ctx, slot.x, slot.y, slot.w, slot.h, 18, 'rgba(255, 255, 255, 0.12)', 'rgba(192, 132, 252, 0.5)', [6, 6]);
+if (!slot.filledWith) {
+ctx.textAlign = 'center';
+ctx.fillStyle = 'rgba(216, 180, 254, 0.4)';
+ctx.font = 'bold 28px Kanit';
+ctx.fillText('?', slot.x + slot.w / 2, slot.y + slot.h / 2 + 10);
+}
+ctx.restore();
+});
+// 3. Floating Letter Gems
+letterGems.forEach((gem) => {
+if (gem.isPlaced) return;
+const isDragging = gem === draggedGem;
+ctx.save();
+ctx.shadowColor = 'rgba(168, 85, 247, 0.5)';
+ctx.shadowBlur = isDragging ? 22 : 10;
+drawRoundedRect(ctx, gem.x, gem.y, gem.w, gem.h, 18, 'rgba(255, 255, 255, 0.9)', '#c084fc');
+ctx.shadowBlur = 0;
+ctx.textAlign = 'center';
+ctx.fillStyle = '#3b0764';
+ctx.font = bold ${gem.w * 0.48}px Kanit;
+ctx.fillText(gem.text, gem.x + gem.w / 2, gem.y + gem.h * 0.68);
+ctx.restore();
+});
+// 4. Render Spell Magic Beams
+for (let i = spellBeams.length - 1; i >= 0; i--) {
+let beam = spellBeams[i];
+beam.progress += 0.08;
+ctx.save();
+ctx.strokeStyle = '#f0abfc';
+ctx.lineWidth = 6;
+ctx.beginPath();
+ctx.moveTo(beam.x, beam.y);
+let currentY = beam.y + (beam.targetY - beam.y) * beam.progress;
+ctx.lineTo(beam.x, currentY);
+ctx.stroke();
+ctx.restore();
+if (beam.progress >= 1) spellBeams.splice(i, 1);
+}
+}
+// Custom Cursor Feedback
+function drawCursor() {
+ctx.save();
+ctx.translate(cursor.x, cursor.y);
+switch (cursor.state) {
+case 'NORMAL':
+ctx.beginPath();
+ctx.arc(0, 0, 16, 0, Math.PI * 2);
+ctx.fillStyle = 'rgba(56, 189, 248, 0.3)';
+ctx.fill();
+ctx.lineWidth = 3;
+ctx.strokeStyle = '#38bdf8';
+ctx.stroke();
+break;
+case 'HOVER':
+ctx.beginPath();
+ctx.arc(0, 0, 22, 0, Math.PI * 2);
+ctx.lineWidth = 3;
+ctx.strokeStyle = '#facc15';
+ctx.setLineDash([6, 6]);
+ctx.stroke();
+break;
+case 'PINCH_MISS':
+ctx.beginPath();
+ctx.arc(0, 0, 18, 0, Math.PI * 2);
+ctx.fillStyle = 'rgba(239, 68, 68, 0.3)';
+ctx.fill();
+ctx.lineWidth = 3;
+ctx.strokeStyle = '#ef4444';
+ctx.stroke();
+break;
+case 'PINCH_HOLD':
+ctx.beginPath();
+ctx.arc(0, 0, 20, 0, Math.PI * 2);
+ctx.fillStyle = 'rgba(34, 197, 94, 0.4)';
+ctx.fill();
+ctx.lineWidt
